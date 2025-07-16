@@ -51,6 +51,12 @@
 		</dependency>
 		
 		<dependency>
+			<groupId>software.amazon.awssdk</groupId>
+			<artifactId>s3</artifactId>
+			<version>2.32.2</version>
+		</dependency>
+		
+		<dependency>
 			<groupId>com.google.guava</groupId>
 			<artifactId>guava</artifactId>
 			<version>33.4.6-jre</version>
@@ -101,24 +107,24 @@
 	<build>
 		<plugins>
 			<plugin>
-					<groupId>org.apache.maven.plugins</groupId>
-					<artifactId>maven-compiler-plugin</artifactId>
-					<version>3.14.0</version>
-					<configuration>
-						<annotationProcessorPaths>
-							<path>
-								<groupId>org.projectlombok</groupId>
-								<artifactId>lombok</artifactId>
-								<version>1.18.38</version>
-							</path>
-							<path>
-								<groupId>com.condation.modules.framework</groupId>
-								<artifactId>modules-api</artifactId>
-								<version>${modules.version}</version>
-							</path>
-						</annotationProcessorPaths>
-					</configuration>
-				</plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-compiler-plugin</artifactId>
+				<version>3.14.0</version>
+				<configuration>
+					<annotationProcessorPaths>
+						<path>
+							<groupId>org.projectlombok</groupId>
+							<artifactId>lombok</artifactId>
+							<version>1.18.38</version>
+						</path>
+						<path>
+							<groupId>com.condation.modules.framework</groupId>
+							<artifactId>modules-api</artifactId>
+							<version>${modules.version}</version>
+						</path>
+					</annotationProcessorPaths>
+				</configuration>
+			</plugin>
 			<plugin>
 				<groupId>org.codehaus.mojo</groupId>
 				<artifactId>license-maven-plugin</artifactId>

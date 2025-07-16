@@ -23,17 +23,15 @@ package com.condation.cms.modules.backup;
  */
 
 
-import com.condation.cms.api.SiteProperties;
 import com.condation.cms.api.configuration.configs.SiteConfiguration;
-import com.condation.cms.api.db.DB;
-import com.condation.cms.api.extensions.BackupFilePostProcessingExtensionPoint;
 import com.condation.cms.api.feature.features.ConfigurationFeature;
 import com.condation.cms.api.feature.features.CronJobSchedulerFeature;
 import com.condation.cms.api.feature.features.DBFeature;
+import com.condation.cms.api.feature.features.InjectorFeature;
+import com.condation.cms.api.hooks.HookSystem;
 import com.condation.cms.api.module.CMSModuleContext;
 import com.condation.cms.api.module.CMSRequestContext;
 import com.condation.modules.api.ModuleLifeCycleExtension;
-import com.condation.modules.api.ModuleManager;
 import com.condation.modules.api.annotation.Extension;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -41,6 +39,7 @@ import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Collections;
+import java.util.Map;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -50,7 +49,7 @@ import lombok.extern.slf4j.Slf4j;
  */
 @Slf4j
 @Extension(ModuleLifeCycleExtension.class)
-public class LifecycleExtension extends ModuleLifeCycleExtension<CMSModuleContext, CMSRequestContext> {
+public class BackupLifecycleExtension extends ModuleLifeCycleExtension<CMSModuleContext, CMSRequestContext> {
 
 	@Override
 	public void init() {
@@ -63,13 +62,13 @@ public class LifecycleExtension extends ModuleLifeCycleExtension<CMSModuleContex
 		try {
 			var siteProperties = getContext().get(ConfigurationFeature.class).configuration().get(SiteConfiguration.class).siteProperties();
 			
-			if (!siteProperties.backupEnabled()) {
+			var backup = siteProperties.getOrDefault("backup", Collections.emptyMap());
+			if (!(boolean)backup.getOrDefault("enabled", false)) {
 				log.info("backup disabled");
 				return;
 			}
-			
 			log.info("init backup");
-			var backup = siteProperties.getOrDefault("backup", Collections.emptyMap());
+
 			if (!backup.containsKey("cron")) {
 				log.error("backup skipped: cron expression required");
 				return;
@@ -99,6 +98,8 @@ public class LifecycleExtension extends ModuleLifeCycleExtension<CMSModuleContex
 							
 							BackupUtil.createTarGzBackup(sitePath, targetFile);
 							
+							var hookSystem = getContext().get(InjectorFeature.class).injector().getInstance(HookSystem.class);
+							hookSystem.execute("module/backup/postprocess", Map.of("file", targetFile.toString()));
 							/*
 							var moduleManager = host.getInjector().getInstance(ModuleManager.class);
 							moduleManager.extensions(BackupFilePostProcessingExtensionPoint.class)
