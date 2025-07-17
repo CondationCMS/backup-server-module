@@ -27,21 +27,15 @@ import com.condation.cms.api.extensions.HookSystemRegisterExtensionPoint;
 import com.condation.cms.api.feature.features.ConfigurationFeature;
 import com.condation.cms.api.hooks.ActionContext;
 import com.condation.modules.api.annotation.Extension;
-import java.net.URI;
+import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.Map;
 
 import lombok.extern.slf4j.Slf4j;
-import software.amazon.awssdk.auth.credentials.ProfileCredentialsProvider;
-import software.amazon.awssdk.core.sync.RequestBody;
-import software.amazon.awssdk.regions.Region;
-import software.amazon.awssdk.services.s3.S3Client;
-import software.amazon.awssdk.services.s3.S3Configuration;
-import software.amazon.awssdk.services.s3.model.Bucket;
-import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
-import software.amazon.awssdk.services.s3.model.PutObjectRequest;
+import org.apache.commons.net.ftp.FTP;
+import org.apache.commons.net.ftp.FTPClient;
 
 /**
  *
@@ -49,43 +43,69 @@ import software.amazon.awssdk.services.s3.model.PutObjectRequest;
  */
 @Slf4j
 @Extension(HookSystemRegisterExtensionPoint.class)
-public class S3Upload extends HookSystemRegisterExtensionPoint {
+public class FTPUpload extends HookSystemRegisterExtensionPoint {
 
+	private FTPClient ftpClient = new FTPClient();
+	
+	public void setFtpClient (FTPClient ftpClient) {
+		this.ftpClient = ftpClient;
+	}
+	
+	
 	@Action("module/backup/postprocess")
-	public void s3_upload(ActionContext<?> context) {
+	public void ftp_upload(ActionContext<?> context) {
 		var siteProperties = getContext().get(ConfigurationFeature.class).configuration().get(SiteConfiguration.class).siteProperties();
 
 		var backup = siteProperties.getOrDefault("backup", Collections.emptyMap());
-		var s3Config = (Map<String, Object>)backup.getOrDefault("s3", Collections.emptyMap());
-		if (!(boolean) s3Config.getOrDefault("enabled", false)) {
-			log.debug("s3 backup disabled");
+		var ftpConfig = (Map<String, Object>) backup.getOrDefault("ftp", Collections.emptyMap());
+		if (!(boolean) ftpConfig.getOrDefault("enabled", false)) {
+			log.debug("ftp backup disabled");
 			return;
 		}
 
 		var fileName = (String) context.arguments().get("file");
 		var file = Path.of(fileName);
 
-		try (S3Client s3 = S3Client.builder()
-				.region(Region.EU_CENTRAL_1) 
-				.credentialsProvider(ProfileCredentialsProvider.create((String) s3Config.getOrDefault("profile", "default")))
-				.endpointOverride(URI.create((String) s3Config.getOrDefault("endpoint", null)))
-				.serviceConfiguration(
-						S3Configuration.builder()
-								.pathStyleAccessEnabled((boolean) s3Config.getOrDefault("pathStyle", false))
-								.build()
-				)
-				.build()) {
-
-			s3.putObject(
-					PutObjectRequest.builder()
-							.bucket((String) s3Config.getOrDefault("bucket", "backups"))
-							.key(file.getFileName().toString())
-							.build(),
-					RequestBody.fromFile(file)
+		
+		try {
+			ftpClient.connect(
+					(String) ftpConfig.getOrDefault("host", null),
+					(int) ftpConfig.getOrDefault("port", null)
 			);
+			ftpClient.login(
+					(String) ftpConfig.getOrDefault("username", null),
+					(String) ftpConfig.getOrDefault("password", null)
+			);
+
+			if (ftpConfig.containsKey("folder")) {
+				ftpClient.changeWorkingDirectory((String) ftpConfig.get("folder"));
+			}
+			ftpClient.enterLocalPassiveMode();
+			ftpClient.setFileType(FTP.BINARY_FILE_TYPE);
+
+			try (InputStream inputStream = Files.newInputStream(file)) {
+				System.out.println("Starte Upload...");
+
+				boolean done = ftpClient.storeFile(file.getFileName().toString(), inputStream);
+				if (done) {
+					log.debug("Backup ftp upload sucessfull!");
+				} else {
+					log.debug("Upload failed!");
+				}
+			}
+
 			log.debug("backup file uploaded");
 		} catch (Exception e) {
 			log.error("", e);
+		} finally {
+			try {
+				if (ftpClient.isConnected()) {
+					ftpClient.logout();
+					ftpClient.disconnect();
+				}
+			} catch (Exception ex) {
+				log.warn("error while closing ftp connection", ex);
+			}
 		}
 	}
 
