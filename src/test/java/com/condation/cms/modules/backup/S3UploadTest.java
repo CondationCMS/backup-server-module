@@ -44,6 +44,7 @@ import static org.mockito.Mockito.when;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 
 @ExtendWith(MockitoExtension.class)
 @Testcontainers
@@ -69,7 +70,7 @@ public class S3UploadTest {
 		Map<String, Object> s3Config = new HashMap<>();
 		s3Config.put("enabled", true);
 		s3Config.put("bucket", "backups");
-		s3Config.put("endpoint", "http://localhost:9000"); // Dummy, wird im Test nicht wirklich genutzt
+		s3Config.put("endpoint", s3Container.getHttpEndpoint()); // Dummy, wird im Test nicht wirklich genutzt
 		s3Config.put("profile", "default");
 		s3Config.put("pathStyle", true);
 
@@ -89,18 +90,20 @@ public class S3UploadTest {
 		try (MockedStatic<ConfigLoader> loaderMock = Mockito.mockStatic(ConfigLoader.class)) {
 			loaderMock.when(ConfigLoader::load).thenReturn(java.util.Optional.of(backupConfig));
 
-			// --- S3Upload instanziieren ---
-			S3Upload uploader = new S3Upload();
-
-			uploader.s3_upload(ctx);
-
 			// --- Prüfen, dass die Datei existiert ---
 			try (S3Client s3 = S3Client.builder()
 					.region(Region.EU_CENTRAL_1)
 					.credentialsProvider(ProfileCredentialsProvider.create("default"))
+					.endpointOverride(URI.create(s3Container.getHttpEndpoint()))
 					.serviceConfiguration(S3Configuration.builder().pathStyleAccessEnabled(true).build())
-					.endpointOverride(URI.create("http://localhost:9000"))
 					.build()) {
+
+				s3.createBucket(CreateBucketRequest.builder().bucket("backups").build());
+
+				// --- S3Upload instanziieren ---
+				S3Upload uploader = new S3Upload();
+
+				uploader.s3_upload(ctx);
 
 				ListObjectsV2Response resp = s3.listObjectsV2(ListObjectsV2Request.builder()
 						.bucket("backups")
