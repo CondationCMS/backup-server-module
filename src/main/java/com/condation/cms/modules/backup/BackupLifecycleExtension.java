@@ -21,24 +21,28 @@ package com.condation.cms.modules.backup;
  * <http://www.gnu.org/licenses/gpl-3.0.html>.
  * #L%
  */
-
-
 import com.condation.cms.api.configuration.configs.SiteConfiguration;
+import com.condation.cms.api.extensions.server.ServerLifecycleExtensionPoint;
 import com.condation.cms.api.feature.features.ConfigurationFeature;
 import com.condation.cms.api.feature.features.CronJobSchedulerFeature;
 import com.condation.cms.api.feature.features.DBFeature;
 import com.condation.cms.api.feature.features.InjectorFeature;
 import com.condation.cms.api.hooks.HookSystem;
-import com.condation.cms.api.module.CMSModuleContext;
-import com.condation.cms.api.module.CMSRequestContext;
-import com.condation.modules.api.ModuleLifeCycleExtension;
+import com.condation.cms.api.scheduler.CronJobScheduler;
+import com.condation.cms.api.utils.PathUtil;
+import com.condation.cms.api.utils.ServerUtil;
 import com.condation.modules.api.annotation.Extension;
+import com.google.common.base.Strings;
+import com.google.inject.Key;
+import com.google.inject.name.Names;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 
 import lombok.extern.slf4j.Slf4j;
@@ -48,75 +52,109 @@ import lombok.extern.slf4j.Slf4j;
  * @author t.marx
  */
 @Slf4j
-@Extension(ModuleLifeCycleExtension.class)
-public class BackupLifecycleExtension extends ModuleLifeCycleExtension<CMSModuleContext, CMSRequestContext> {
+@Extension(ServerLifecycleExtensionPoint.class)
+public class BackupLifecycleExtension extends ServerLifecycleExtensionPoint {
 
 	@Override
-	public void init() {
+	public void started() {
 
 	}
 
-
 	@Override
+	public void stopped() {
+
+	}
+
 	public void activate() {
 		try {
-			var siteProperties = getContext().get(ConfigurationFeature.class).configuration().get(SiteConfiguration.class).siteProperties();
-			
-			var backup = siteProperties.getOrDefault("backup", Collections.emptyMap());
-			if (!(boolean)backup.getOrDefault("enabled", false)) {
-				log.info("backup disabled");
-				return;
-			}
-			log.info("init backup");
 
-			if (!backup.containsKey("cron")) {
-				log.error("backup skipped: cron expression required");
+			var loadedConfig = ConfigLoader.load();
+
+			if (!loadedConfig.isPresent()) {
+				log.info("no backup config found");
 				return;
 			}
-			if (!backup.containsKey("target")) {
-				log.error("backup skipped: target folder required");
-				return;
-			}
-			
-			String cron = (String)backup.get("cron");
-			String target = (String)backup.get("target");
-			
-			var scheduler = getContext().get(CronJobSchedulerFeature.class).cronJobScheduler();
-			
-			var targetPath = Path.of(target);
-			Files.createDirectories(targetPath);
-			
-			scheduler.schedule(cron,
-					"backup-job-%s".formatted(siteProperties.id()),
-					(context) -> {
-						try {
-							var timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"));
-							log.debug("start backup at {}", timestamp);
-							var sitePath = getContext().get(DBFeature.class).db().getFileSystem().hostBase();
-							var backupFilename = "%s-%s.tar.gz".formatted(siteProperties.id(), timestamp);
-							final Path targetFile = targetPath.resolve(backupFilename);
-							
-							BackupUtil.createTarGzBackup(sitePath, targetFile);
-							
-							var hookSystem = getContext().get(InjectorFeature.class).injector().getInstance(HookSystem.class);
-							hookSystem.execute("module/backup/postprocess", Map.of("file", targetFile.toString()));
-							/*
-							var moduleManager = host.getInjector().getInstance(ModuleManager.class);
-							moduleManager.extensions(BackupFilePostProcessingExtensionPoint.class)
-							.forEach(extension -> extension.postProcess(targetFile));
-							*/
-						} catch (Exception e) {
-							log.error("error creating backup", e);
-						}
+
+			var backupConig = loadedConfig.get();
+
+			backupConig.getBackups().forEach(backup -> {
+				var name = backup.getName();
+
+				try {
+					var cron = backup.getCron() != null ? backup.getCron() : backupConig.getCron();
+					var target = backup.getTarget() != null ? backup.getTarget() : backupConig.getTarget();
+
+					if (!backup.isEnabled()) {
+						return;
 					}
-			);
+
+					if (Strings.isNullOrEmpty(cron)) {
+						log.error("backup {} skipped: cron expression required", name);
+						return;
+					}
+					if (Strings.isNullOrEmpty(target)) {
+						log.error("backup {} skipped: target folder required", name);
+						return;
+					}
+
+					var scheduler = getContext().get(InjectorFeature.class).injector().getInstance(Key.get(CronJobScheduler.class, Names.named("server")));
+
+					var targetPath = Path.of(target);
+					Files.createDirectories(targetPath);
+
+					scheduler.schedule(cron,
+							"backup-job-%s".formatted(name),
+							(context) -> {
+								try {
+									var timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"));
+									log.debug("start backup at {}", timestamp);
+									var sitePath = getContext().get(DBFeature.class).db().getFileSystem().hostBase();
+									var backupFilename = "%s-%s.tar.gz".formatted(name, timestamp);
+									final Path targetFile = targetPath.resolve(backupFilename);
+
+									BackupUtil.createTarGzBackup(sitePath, targetFile);
+
+									List<Path> sources = new ArrayList<>();
+									backup.getInclude_files().forEach(file -> {
+										var bf = Path.of(file);
+										if (PathUtil.isChild(ServerUtil.getHome(), bf)) {
+											if (Files.exists(bf)) {
+												sources.add(bf);
+											}
+										} else {
+											log.warn("online files inside server home are allowed for backup");
+										}
+									});
+									backup.getInclude_dirs().forEach(file -> {
+										var bf = Path.of(file);
+										if (PathUtil.isChild(ServerUtil.getHome(), bf)) {
+											if (Files.exists(bf)) {
+												sources.add(bf);
+											}
+										} else {
+											log.warn("online folders inside server home are allowed for backup");
+										}
+									});
+									
+									TarGzPacker.createTarGz(targetFile.toFile(), sources);
+
+									var hookSystem = getContext().get(InjectorFeature.class).injector().getInstance(HookSystem.class);
+									hookSystem.execute("module/backup/postprocess", Map.of(
+											"file", targetFile.toString(),
+											"name", name
+									));
+								} catch (Exception e) {
+									log.error("error creating backup", e);
+								}
+							}
+					);
+				} catch (IOException ex) {
+					log.error("error configuring backup {}", name, ex);
+				}
+
+			});
 		} catch (IOException ex) {
 			log.error("error register backup cron job", ex);
 		}
-	}
-
-	@Override
-	public void deactivate() {
-		
 	}
 }

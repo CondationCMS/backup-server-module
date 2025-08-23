@@ -27,8 +27,8 @@ import com.condation.cms.api.extensions.HookSystemRegisterExtensionPoint;
 import com.condation.cms.api.feature.features.ConfigurationFeature;
 import com.condation.cms.api.hooks.ActionContext;
 import com.condation.modules.api.annotation.Extension;
+import java.io.IOException;
 import java.net.URI;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.Map;
@@ -39,8 +39,6 @@ import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3Configuration;
-import software.amazon.awssdk.services.s3.model.Bucket;
-import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 
 /**
@@ -52,21 +50,43 @@ import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 public class S3Upload extends HookSystemRegisterExtensionPoint {
 
 	@Action("module/backup/postprocess")
-	public void s3_upload(ActionContext<?> context) {
-		var siteProperties = getContext().get(ConfigurationFeature.class).configuration().get(SiteConfiguration.class).siteProperties();
+	public void s3_upload(ActionContext<?> context) throws IOException {
+		var backupConfig = ConfigLoader.load();
+		if (backupConfig.isEmpty()) {
+			return;
+		}
 
-		var backup = siteProperties.getOrDefault("backup", Collections.emptyMap());
-		var s3Config = (Map<String, Object>)backup.getOrDefault("s3", Collections.emptyMap());
+		var name = (String) context.arguments().get("name");
+
+		var byNameConfig = backupConfig.get().getBackups().stream().filter(backup -> backup.getName().equals(name)).findFirst();
+
+		if (byNameConfig.isEmpty()) {
+			log.warn("backup config for '{}' not found", name);
+			return;
+		}
+
+		var s3ConfigOpt = byNameConfig.get().getPost_processing().stream().filter(processing -> processing.getType().equals("s3")).findFirst();
+
+		if (s3ConfigOpt.isEmpty()) {
+			log.warn("no s3 config found for '{}'", name);
+			return;
+		}
+
+		if (!s3ConfigOpt.get().isEnabled()) {
+			return;
+		}
+		var s3Config = s3ConfigOpt.get().getConfig();
 		if (!(boolean) s3Config.getOrDefault("enabled", false)) {
-			log.debug("s3 backup disabled");
+			log.debug("ftp backup disabled");
 			return;
 		}
 
 		var fileName = (String) context.arguments().get("file");
 		var file = Path.of(fileName);
 
+		
 		try (S3Client s3 = S3Client.builder()
-				.region(Region.EU_CENTRAL_1) 
+				.region(Region.EU_CENTRAL_1)
 				.credentialsProvider(ProfileCredentialsProvider.create((String) s3Config.getOrDefault("profile", "default")))
 				.endpointOverride(URI.create((String) s3Config.getOrDefault("endpoint", null)))
 				.serviceConfiguration(

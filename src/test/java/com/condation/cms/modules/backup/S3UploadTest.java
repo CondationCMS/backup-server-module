@@ -22,36 +22,30 @@ package com.condation.cms.modules.backup;
  * #L%
  */
 import com.adobe.testing.s3mock.testcontainers.S3MockContainer;
-import com.condation.cms.api.SiteProperties;
-import com.condation.cms.api.configuration.Configuration;
-import com.condation.cms.api.configuration.configs.SiteConfiguration;
-import com.condation.cms.api.feature.features.ConfigurationFeature;
 import com.condation.cms.api.hooks.ActionContext;
-import com.condation.cms.api.module.CMSModuleContext;
-import java.net.URI;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.HashMap;
-import java.util.Map;
-import org.assertj.core.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 import software.amazon.awssdk.auth.credentials.ProfileCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3Configuration;
-import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
+import java.net.URI;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
+import static org.assertj.core.api.Assertions.assertThat;
+import org.junit.jupiter.api.extension.ExtendWith;
+import static org.mockito.Mockito.when;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
 
-/**
- *
- * @author thorstenmarx
- */
+@ExtendWith(MockitoExtension.class)
 @Testcontainers
 public class S3UploadTest {
 
@@ -59,68 +53,65 @@ public class S3UploadTest {
 	S3MockContainer s3Container = new S3MockContainer("latest");
 
 	@Test
-	public void s3Test() throws Exception {
+	void testS3Upload() throws Exception {
+		// --- Testdatei anlegen ---
+		Path tempFile = Files.createTempFile("backup-test", ".txt");
+		Files.writeString(tempFile, "hallo welt");
 
-		try (S3Client s3 = S3Client.builder()
-				.region(Region.EU_CENTRAL_1)
-				.credentialsProvider(ProfileCredentialsProvider.create("test"))
-				.endpointOverride(URI.create(s3Container.getHttpEndpoint()))
-				.serviceConfiguration(
-						S3Configuration.builder()
-								.pathStyleAccessEnabled(true)
-								.build()
-				)
-				.build()) {
+		// --- ActionContext mocken ---
+		ActionContext<Object> ctx = Mockito.mock(ActionContext.class);
+		Map<String, Object> args = new HashMap<>();
+		args.put("file", tempFile.toString());
+		args.put("name", "testBackup");
+		when(ctx.arguments()).thenReturn(args);
 
-			s3.createBucket(CreateBucketRequest.builder().bucket("backups").build());
+		// --- Backup-Config vorbereiten ---
+		Map<String, Object> s3Config = new HashMap<>();
+		s3Config.put("enabled", true);
+		s3Config.put("bucket", "backups");
+		s3Config.put("endpoint", "http://localhost:9000"); // Dummy, wird im Test nicht wirklich genutzt
+		s3Config.put("profile", "default");
+		s3Config.put("pathStyle", true);
 
-			Path tempFile = Files.createTempFile("backup-test", ".txt");
-			Files.writeString(tempFile, "hallo welt");
+		Configuration.PostProcessing post = new Configuration.PostProcessing();
+		post.setType("s3");
+		post.setEnabled(true);
+		post.setConfig(s3Config);
 
-			ActionContext<?> ctx = Mockito.mock(ActionContext.class);
-			Map<String, Object> args = new HashMap<>();
-			args.put("file", tempFile.toString());
-			when(ctx.arguments()).thenReturn(args);
+		Configuration.Backup backup = new Configuration.Backup();
+		backup.setName("testBackup");
+		backup.setPost_processing(Collections.singletonList(post));
 
-			Map<String, Object> s3Config = new HashMap<>();
-			s3Config.put("enabled", true);
-			s3Config.put("bucket", "backups");
-			s3Config.put("endpoint", s3Container.getHttpEndpoint());
-			s3Config.put("profile", "default");
-			s3Config.put("pathStyle", true);
+		Configuration backupConfig = new Configuration();
+		backupConfig.setBackups(Collections.singletonList(backup));
 
-			Map<String, Object> backup = new HashMap<>();
-			backup.put("s3", s3Config);
+		// --- ConfigLoader mocken ---
+		try (MockedStatic<ConfigLoader> loaderMock = Mockito.mockStatic(ConfigLoader.class)) {
+			loaderMock.when(ConfigLoader::load).thenReturn(java.util.Optional.of(backupConfig));
 
-			var context = new CMSModuleContext();
-			var config = mock(Configuration.class);
-			var siteConfig = mock(SiteConfiguration.class);
-			var siteProperties = mock(SiteProperties.class);
-
-			when(config.get(SiteConfiguration.class)).thenReturn(siteConfig);
-			when(siteConfig.siteProperties()).thenReturn(siteProperties);
-			when(siteProperties.getOrDefault(Mockito.eq("backup"), Mockito.any())).thenReturn(backup);
-
-			ConfigurationFeature cf = new ConfigurationFeature(config);
-			context.add(ConfigurationFeature.class, cf);
-
+			// --- S3Upload instanziieren ---
 			S3Upload uploader = new S3Upload();
-			uploader.setContext(context);
 
 			uploader.s3_upload(ctx);
 
-			var fileName = tempFile.getFileName().toString();
-			
-			ListObjectsV2Response resp = s3.listObjectsV2(ListObjectsV2Request.builder()
-					.bucket("backups")
-					.prefix(fileName)
-					.build());
+			// --- Prüfen, dass die Datei existiert ---
+			try (S3Client s3 = S3Client.builder()
+					.region(Region.EU_CENTRAL_1)
+					.credentialsProvider(ProfileCredentialsProvider.create("default"))
+					.serviceConfiguration(S3Configuration.builder().pathStyleAccessEnabled(true).build())
+					.endpointOverride(URI.create("http://localhost:9000"))
+					.build()) {
 
-			boolean exists = resp.contents().stream()
-					.anyMatch(o -> o.key().equals(fileName));
-			
-			Assertions.assertThat(exists).isTrue();
+				ListObjectsV2Response resp = s3.listObjectsV2(ListObjectsV2Request.builder()
+						.bucket("backups")
+						.prefix(tempFile.getFileName().toString())
+						.build());
+
+				boolean exists = resp.contents().stream()
+						.anyMatch(o -> o.key().equals(tempFile.getFileName().toString()));
+
+				assertThat(exists).isTrue();
+			}
 		}
 	}
-
 }

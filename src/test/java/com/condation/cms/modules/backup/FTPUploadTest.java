@@ -21,20 +21,16 @@ package com.condation.cms.modules.backup;
  * <http://www.gnu.org/licenses/gpl-3.0.html>.
  * #L%
  */
-import com.condation.cms.api.SiteProperties;
-import com.condation.cms.api.configuration.Configuration;
-import com.condation.cms.api.configuration.configs.SiteConfiguration;
-import com.condation.cms.api.feature.features.ConfigurationFeature;
+
 import com.condation.cms.api.hooks.ActionContext;
-import com.condation.cms.api.module.CMSModuleContext;
 import org.apache.commons.net.ftp.FTPClient;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.*;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
@@ -43,18 +39,23 @@ public class FTPUploadTest {
 
     @Test
     void testFtpUploadSuccessful() throws Exception {
+        // --- Temporäre Testdatei anlegen ---
         Path tempFile = Files.createTempFile("backup-test", ".zip");
         Files.writeString(tempFile, "dummy content");
 
+        // --- FTPClient mocken ---
         FTPClient mockFtp = Mockito.mock(FTPClient.class);
         when(mockFtp.storeFile(any(String.class), any())).thenReturn(true);
         when(mockFtp.isConnected()).thenReturn(true);
 
+        // --- ActionContext mocken ---
         ActionContext<Object> mockCtx = Mockito.mock(ActionContext.class);
         Map<String, Object> args = new HashMap<>();
         args.put("file", tempFile.toString());
+        args.put("name", "testBackup");
         when(mockCtx.arguments()).thenReturn(args);
 
+        // --- Backup-Konfiguration vorbereiten ---
         Map<String, Object> ftpConfig = new HashMap<>();
         ftpConfig.put("enabled", true);
         ftpConfig.put("host", "localhost");
@@ -63,36 +64,36 @@ public class FTPUploadTest {
         ftpConfig.put("password", "pass");
         ftpConfig.put("folder", "/upload");
 
-        Map<String, Object> backup = new HashMap<>();
-        backup.put("ftp", ftpConfig);
+        // Post-Processing-Objekt (wie in der Methode erwartet)
+        Configuration.PostProcessing ftpProcessing = new Configuration.PostProcessing();
+        ftpProcessing.setType("ftp");
+        ftpProcessing.setEnabled(true);
+        ftpProcessing.setConfig(ftpConfig);
 
-        var context = new CMSModuleContext();
-		var config = mock(Configuration.class);
-		var siteConfig = mock(SiteConfiguration.class);
-		var siteProperties = mock(SiteProperties.class);
-		
-		when(config.get(SiteConfiguration.class)).thenReturn(siteConfig);
-		when(siteConfig.siteProperties()).thenReturn(siteProperties);
-		when(siteProperties.getOrDefault(Mockito.eq("backup"), Mockito.any())).thenReturn(backup);
-		
-		ConfigurationFeature cf = new ConfigurationFeature(config);
-		context.add(ConfigurationFeature.class, cf);
-		
-        FTPUpload uploader = new FTPUpload();
-		uploader.setContext(context);
+        Configuration.Backup backup = new Configuration.Backup();
+        backup.setName("testBackup");
+        backup.setPost_processing(Collections.singletonList(ftpProcessing));
 
-        // Unserem Uploader den gemockten FTPClient geben
-        uploader.setFtpClient(mockFtp);
+        Configuration backupConfig = new Configuration();
+        backupConfig.setBackups(Collections.singletonList(backup));
 
-        // ---- Test durchführen ----
-        uploader.ftp_upload(mockCtx);
+        // --- ConfigLoader mocken ---
+        try (MockedStatic<ConfigLoader> mockedLoader = Mockito.mockStatic(ConfigLoader.class)) {
+            mockedLoader.when(ConfigLoader::load).thenReturn(Optional.of(backupConfig));
 
-        // ---- Überprüfen ----
-        verify(mockFtp).connect("localhost", 21);
-        verify(mockFtp).login("user", "pass");
-        verify(mockFtp).changeWorkingDirectory("/upload");
-        verify(mockFtp).storeFile(eq(tempFile.getFileName().toString()), any());
-        verify(mockFtp).logout();
-        verify(mockFtp).disconnect();
+            FTPUpload uploader = new FTPUpload();
+            uploader.setFtpClient(mockFtp);
+
+            // ---- Test durchführen ----
+            uploader.ftp_upload(mockCtx);
+
+            // ---- Überprüfen ----
+            verify(mockFtp).connect("localhost", 21);
+            verify(mockFtp).login("user", "pass");
+            verify(mockFtp).changeWorkingDirectory("/upload");
+            verify(mockFtp).storeFile(eq(tempFile.getFileName().toString()), any());
+            verify(mockFtp).logout();
+            verify(mockFtp).disconnect();
+        }
     }
 }

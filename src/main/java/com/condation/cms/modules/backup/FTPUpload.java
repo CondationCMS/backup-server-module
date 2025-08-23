@@ -22,16 +22,13 @@ package com.condation.cms.modules.backup;
  * #L%
  */
 import com.condation.cms.api.annotations.Action;
-import com.condation.cms.api.configuration.configs.SiteConfiguration;
 import com.condation.cms.api.extensions.HookSystemRegisterExtensionPoint;
-import com.condation.cms.api.feature.features.ConfigurationFeature;
 import com.condation.cms.api.hooks.ActionContext;
 import com.condation.modules.api.annotation.Extension;
+import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Collections;
-import java.util.Map;
 
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.net.ftp.FTP;
@@ -53,11 +50,32 @@ public class FTPUpload extends HookSystemRegisterExtensionPoint {
 	
 	
 	@Action("module/backup/postprocess")
-	public void ftp_upload(ActionContext<?> context) {
-		var siteProperties = getContext().get(ConfigurationFeature.class).configuration().get(SiteConfiguration.class).siteProperties();
+	public void ftp_upload(ActionContext<?> context) throws IOException {
+		var backupConfig = ConfigLoader.load();
+		if (backupConfig.isEmpty()) {
+			return;
+		}
 
-		var backup = siteProperties.getOrDefault("backup", Collections.emptyMap());
-		var ftpConfig = (Map<String, Object>) backup.getOrDefault("ftp", Collections.emptyMap());
+		var name = (String) context.arguments().get("name");
+		
+		var byNameConfig = backupConfig.get().getBackups().stream().filter(backup -> backup.getName().equals(name)).findFirst();
+		
+		if (byNameConfig.isEmpty()) {
+			log.warn("backup config for '{}' not found", name);
+			return;
+		}
+		
+		var ftpConfigOpt = byNameConfig.get().getPost_processing().stream().filter(processing -> processing.getType().equals("ftp")).findFirst();
+		
+		if (ftpConfigOpt.isEmpty()) {
+			log.warn("no ftp config found for '{}'", name);
+			return;
+		}
+		
+		if (!ftpConfigOpt.get().isEnabled()) {
+			return;
+		}
+		var ftpConfig = ftpConfigOpt.get().getConfig();
 		if (!(boolean) ftpConfig.getOrDefault("enabled", false)) {
 			log.debug("ftp backup disabled");
 			return;

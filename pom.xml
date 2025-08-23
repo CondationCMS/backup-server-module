@@ -49,7 +49,11 @@
 			<artifactId>commons-compress</artifactId>
 			<version>1.28.0</version>
 		</dependency>
-		
+		<dependency>
+			<groupId>org.snakeyaml</groupId>
+			<artifactId>snakeyaml-engine</artifactId>
+			<version>2.10</version>
+		</dependency>
 		<dependency>
 			<groupId>software.amazon.awssdk</groupId>
 			<artifactId>s3</artifactId>
