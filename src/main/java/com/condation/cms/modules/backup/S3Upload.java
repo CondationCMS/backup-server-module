@@ -22,16 +22,12 @@ package com.condation.cms.modules.backup;
  * #L%
  */
 import com.condation.cms.api.annotations.Action;
-import com.condation.cms.api.configuration.configs.SiteConfiguration;
-import com.condation.cms.api.extensions.HookSystemRegisterExtensionPoint;
-import com.condation.cms.api.feature.features.ConfigurationFeature;
+import com.condation.cms.api.extensions.server.ServerHookSystemRegisterExtensionPoint;
 import com.condation.cms.api.hooks.ActionContext;
 import com.condation.modules.api.annotation.Extension;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.file.Path;
-import java.util.Collections;
-import java.util.Map;
 
 import lombok.extern.slf4j.Slf4j;
 import software.amazon.awssdk.auth.credentials.ProfileCredentialsProvider;
@@ -46,8 +42,8 @@ import software.amazon.awssdk.services.s3.model.PutObjectRequest;
  * @author t.marx
  */
 @Slf4j
-@Extension(HookSystemRegisterExtensionPoint.class)
-public class S3Upload extends HookSystemRegisterExtensionPoint {
+@Extension(ServerHookSystemRegisterExtensionPoint.class)
+public class S3Upload extends ServerHookSystemRegisterExtensionPoint {
 
 	@Action("module/backup/postprocess")
 	public void s3_upload(ActionContext<?> context) throws IOException {

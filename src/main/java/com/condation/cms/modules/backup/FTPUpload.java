@@ -22,7 +22,7 @@ package com.condation.cms.modules.backup;
  * #L%
  */
 import com.condation.cms.api.annotations.Action;
-import com.condation.cms.api.extensions.HookSystemRegisterExtensionPoint;
+import com.condation.cms.api.extensions.server.ServerHookSystemRegisterExtensionPoint;
 import com.condation.cms.api.hooks.ActionContext;
 import com.condation.modules.api.annotation.Extension;
 import java.io.IOException;
@@ -39,8 +39,8 @@ import org.apache.commons.net.ftp.FTPClient;
  * @author t.marx
  */
 @Slf4j
-@Extension(HookSystemRegisterExtensionPoint.class)
-public class FTPUpload extends HookSystemRegisterExtensionPoint {
+@Extension(ServerHookSystemRegisterExtensionPoint.class)
+public class FTPUpload extends ServerHookSystemRegisterExtensionPoint {
 
 	private FTPClient ftpClient = new FTPClient();
 	

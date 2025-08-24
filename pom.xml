@@ -50,9 +50,9 @@
 			<version>1.28.0</version>
 		</dependency>
 		<dependency>
-			<groupId>org.snakeyaml</groupId>
-			<artifactId>snakeyaml-engine</artifactId>
-			<version>2.10</version>
+			<groupId>org.yaml</groupId>
+			<artifactId>snakeyaml</artifactId>
+			<version>2.4</version>
 		</dependency>
 		<dependency>
 			<groupId>software.amazon.awssdk</groupId>

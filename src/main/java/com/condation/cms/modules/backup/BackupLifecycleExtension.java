@@ -21,11 +21,7 @@ package com.condation.cms.modules.backup;
  * <http://www.gnu.org/licenses/gpl-3.0.html>.
  * #L%
  */
-import com.condation.cms.api.configuration.configs.SiteConfiguration;
 import com.condation.cms.api.extensions.server.ServerLifecycleExtensionPoint;
-import com.condation.cms.api.feature.features.ConfigurationFeature;
-import com.condation.cms.api.feature.features.CronJobSchedulerFeature;
-import com.condation.cms.api.feature.features.DBFeature;
 import com.condation.cms.api.feature.features.InjectorFeature;
 import com.condation.cms.api.hooks.HookSystem;
 import com.condation.cms.api.scheduler.CronJobScheduler;
@@ -41,7 +37,6 @@ import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -55,17 +50,14 @@ import lombok.extern.slf4j.Slf4j;
 @Extension(ServerLifecycleExtensionPoint.class)
 public class BackupLifecycleExtension extends ServerLifecycleExtensionPoint {
 
-	@Override
-	public void started() {
-
-	}
 
 	@Override
 	public void stopped() {
 
 	}
 
-	public void activate() {
+	@Override
+	public void started() {
 		try {
 
 			var loadedConfig = ConfigLoader.load();
@@ -108,11 +100,8 @@ public class BackupLifecycleExtension extends ServerLifecycleExtensionPoint {
 								try {
 									var timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"));
 									log.debug("start backup at {}", timestamp);
-									var sitePath = getContext().get(DBFeature.class).db().getFileSystem().hostBase();
 									var backupFilename = "%s-%s.tar.gz".formatted(name, timestamp);
 									final Path targetFile = targetPath.resolve(backupFilename);
-
-									BackupUtil.createTarGzBackup(sitePath, targetFile);
 
 									List<Path> sources = new ArrayList<>();
 									backup.getInclude_files().forEach(file -> {
@@ -136,6 +125,7 @@ public class BackupLifecycleExtension extends ServerLifecycleExtensionPoint {
 										}
 									});
 									
+									log.debug("creating backup {} into {}", name, targetFile.getFileName().toString());
 									TarGzPacker.createTarGz(targetFile.toFile(), sources);
 
 									var hookSystem = getContext().get(InjectorFeature.class).injector().getInstance(HookSystem.class);
