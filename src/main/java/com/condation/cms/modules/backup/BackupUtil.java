@@ -2,7 +2,7 @@ package com.condation.cms.modules.backup;
 
 /*-
  * #%L
- * recommendations-module
+ * backup-module
  * %%
  * Copyright (C) 2025 CondationCMS
  * %%

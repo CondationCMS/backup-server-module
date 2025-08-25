@@ -22,11 +22,14 @@ package com.condation.cms.modules.backup;
  * #L%
  */
 
+import com.condation.cms.api.utils.ServerUtil;
 import java.io.BufferedOutputStream;
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.DirectoryStream;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
@@ -39,7 +42,10 @@ import org.apache.commons.io.IOUtils;
  * @author thmar
  */
 public class TarGzPacker {
-public static void createTarGz(File output, List<Path> sources) throws IOException {
+
+	public static void createTarGz(Path root, File output, List<Path> sources) throws IOException {
+        Path rootPath = root.toAbsolutePath().normalize();
+
         try (FileOutputStream fos = new FileOutputStream(output);
              BufferedOutputStream bos = new BufferedOutputStream(fos);
              GzipCompressorOutputStream gzos = new GzipCompressorOutputStream(bos);
@@ -47,31 +53,35 @@ public static void createTarGz(File output, List<Path> sources) throws IOExcepti
 
             taos.setLongFileMode(TarArchiveOutputStream.LONGFILE_POSIX);
 
-            for (Path source : sources) {
-                addFileToTarGz(taos, source.toFile(), "");
+			for (Path source : sources) {
+                Path sourcePath = source.toAbsolutePath().normalize();
+                if (!sourcePath.startsWith(rootPath)) {
+                    throw new IllegalArgumentException("source directory not inside server home: " + source);
+                }
+                addFileToTarGz(taos, sourcePath, rootPath);
             }
         }
     }
 
-    private static void addFileToTarGz(TarArchiveOutputStream taos, File file, String parent) throws IOException {
-        String entryName = parent + file.getName();
-        TarArchiveEntry entry = new TarArchiveEntry(file, entryName);
+    private static void addFileToTarGz(TarArchiveOutputStream taos, Path path, Path root) throws IOException {
+        Path relativePath = root.relativize(path);
+        String entryName = relativePath.toString().replace("\\", "/");
 
+        TarArchiveEntry entry = new TarArchiveEntry(path.toFile(), entryName);
         taos.putArchiveEntry(entry);
 
-        if (file.isFile()) {
-            try (FileInputStream fis = new FileInputStream(file)) {
-                IOUtils.copy(fis, taos);
+        if (Files.isRegularFile(path)) {
+            try (InputStream is = Files.newInputStream(path)) {
+                IOUtils.copy(is, taos);
             }
             taos.closeArchiveEntry();
-        } else if (file.isDirectory()) {
+        } else if (Files.isDirectory(path)) {
             taos.closeArchiveEntry();
-            File[] children = file.listFiles();
-            if (children != null) {
-                for (File child : children) {
-                    addFileToTarGz(taos, child, entryName + "/");
+            try (DirectoryStream<Path> stream = Files.newDirectoryStream(path)) {
+                for (Path child : stream) {
+                    addFileToTarGz(taos, child, root);
                 }
             }
         }
-    }	
+    }
 }

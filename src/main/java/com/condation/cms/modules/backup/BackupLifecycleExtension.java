@@ -2,7 +2,7 @@ package com.condation.cms.modules.backup;
 
 /*-
  * #%L
- * recommendations-module
+ * backup-module
  * %%
  * Copyright (C) 2025 CondationCMS
  * %%
@@ -126,7 +126,7 @@ public class BackupLifecycleExtension extends ServerLifecycleExtensionPoint {
 									});
 									
 									log.debug("creating backup {} into {}", name, targetFile.getFileName().toString());
-									TarGzPacker.createTarGz(targetFile.toFile(), sources);
+									TarGzPacker.createTarGz(ServerUtil.getHome(), targetFile.toFile(), sources);
 
 									var hookSystem = getContext().get(InjectorFeature.class).injector().getInstance(HookSystem.class);
 									hookSystem.execute("module/backup/postprocess", Map.of(
