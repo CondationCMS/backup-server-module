@@ -3,10 +3,10 @@
 	<modelVersion>4.0.0</modelVersion>
 	
 	<groupId>com.condation.cms.modules</groupId>
-	<artifactId>backup-module</artifactId>
+	<artifactId>backup-server-module</artifactId>
 	<version>1.0.0</version>
 	<packaging>jar</packaging>
-	<name>backup-module</name>
+	<name>backup-server-module</name>
 
 	<properties>
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
