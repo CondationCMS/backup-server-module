@@ -10,14 +10,14 @@
 
 	<properties>
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-		<module.id>backup-module</module.id>
-		<module.name>backup module</module.name>
+		<module.id>backup-server-module</module.id>
+		<module.name>backup server module</module.name>
 		<module.priority>NORMAL</module.priority>
 		
-		<cms.version>7.8.0</cms.version>
+		<cms.version>8.0.0</cms.version>
 		<modules.version>1.2.0</modules.version>
-		<maven.compiler.source>21</maven.compiler.source>
-		<maven.compiler.target>21</maven.compiler.target>
+		<maven.compiler.source>25</maven.compiler.source>
+		<maven.compiler.target>25</maven.compiler.target>
 	</properties>
 	<inceptionYear>2025</inceptionYear>
 	<organization>
