@@ -22,50 +22,67 @@ package com.condation.cms.modules.backup;
  * #L%
  */
 
+import com.condation.cms.api.utils.ServerUtil;
+import java.io.BufferedOutputStream;
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
-import java.util.stream.Stream;
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
 import org.apache.commons.compress.archivers.tar.TarArchiveOutputStream;
 import org.apache.commons.compress.compressors.gzip.GzipCompressorOutputStream;
-import org.apache.commons.compress.utils.IOUtils;
 
+/**
+ *
+ * @author thmar
+ */
 public class TarGzPacker {
-    public static void createTarGz(Path basePath, File outputFile, List<Path> sources) throws IOException {
-        try (FileOutputStream fos = new FileOutputStream(outputFile);
-             GzipCompressorOutputStream gzos = new GzipCompressorOutputStream(fos);
+
+	public static void createTarGz(Path root, File output, List<Path> sources) throws IOException {
+        Path rootPath = root.toAbsolutePath().normalize();
+
+        try (FileOutputStream fos = new FileOutputStream(output);
+             BufferedOutputStream bos = new BufferedOutputStream(fos);
+             GzipCompressorOutputStream gzos = new GzipCompressorOutputStream(bos);
              TarArchiveOutputStream taos = new TarArchiveOutputStream(gzos)) {
 
-            for (Path source : sources) {
-                if (Files.isDirectory(source)) {
-                    try (Stream<Path> stream = Files.walk(source)) {
-                        stream.filter(p -> !Files.isDirectory(p)).forEach(p -> {
-                            try {
-                                addFileToTar(basePath, p, taos);
-                            } catch (IOException e) {
-                                throw new RuntimeException(e);
-                            }
-                        });
-                    }
-                } else {
-                    addFileToTar(basePath, source, taos);
+            taos.setLongFileMode(TarArchiveOutputStream.LONGFILE_POSIX);
+
+			for (Path source : sources) {
+                Path sourcePath = source.toAbsolutePath().normalize();
+                if (!sourcePath.startsWith(rootPath)) {
+                    throw new IllegalArgumentException("source directory not inside server home: " + source);
                 }
+                addFileToTarGz(taos, sourcePath, rootPath);
             }
+			
+			taos.finish();
         }
     }
 
-    private static void addFileToTar(Path basePath, Path file, TarArchiveOutputStream taos) throws IOException {
-        String relativePath = basePath.relativize(file).toString();
-        TarArchiveEntry entry = new TarArchiveEntry(file.toFile(), relativePath);
+    private static void addFileToTarGz(TarArchiveOutputStream taos, Path path, Path root) throws IOException {
+        Path relativePath = root.relativize(path);
+        String entryName = relativePath.toString().replace("\\", "/");
+
+        TarArchiveEntry entry = new TarArchiveEntry(path.toFile(), entryName);
         taos.putArchiveEntry(entry);
-        try (FileInputStream fis = new FileInputStream(file.toFile())) {
-            IOUtils.copy(fis, taos);
+
+        if (Files.isRegularFile(path)) {
+            try (InputStream is = Files.newInputStream(path)) {
+				is.transferTo(taos);
+            }
+            taos.closeArchiveEntry();
+        } else if (Files.isDirectory(path)) {
+            taos.closeArchiveEntry();
+            try (DirectoryStream<Path> stream = Files.newDirectoryStream(path)) {
+                for (Path child : stream) {
+                    addFileToTarGz(taos, child, root);
+                }
+            }
         }
-        taos.closeArchiveEntry();
     }
 }
