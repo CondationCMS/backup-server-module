@@ -22,7 +22,6 @@ package com.condation.cms.modules.backup;
  * #L%
  */
 import com.condation.cms.api.Constants;
-import com.condation.cms.api.utils.ServerUtil;
 import com.condation.cms.api.utils.SiteUtil;
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
@@ -33,6 +32,8 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.DigestOutputStream;
+import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -40,7 +41,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
 import org.apache.commons.compress.archivers.tar.TarArchiveOutputStream;
 import org.apache.commons.compress.compressors.gzip.GzipCompressorOutputStream;
-import org.apache.commons.compress.compressors.gzip.GzipParameters;
 import org.apache.commons.io.IOUtils;
 
 /**
@@ -59,10 +59,7 @@ public class TarGzPacker {
 	 * @throws IOException Bei Ein-/Ausgabefehler
 	 */
 	public static void createTarGz(Path root, File output, List<Path> sources) throws IOException {
-		try (FileOutputStream fos = new FileOutputStream(output); 
-				BufferedOutputStream bos = new BufferedOutputStream(fos); 
-				GzipCompressorOutputStream gos = new GzipCompressorOutputStream(bos); 
-				TarArchiveOutputStream taos = new TarArchiveOutputStream(gos)) {
+		try (FileOutputStream fos = new FileOutputStream(output); BufferedOutputStream bos = new BufferedOutputStream(fos); GzipCompressorOutputStream gos = new GzipCompressorOutputStream(bos); TarArchiveOutputStream taos = new TarArchiveOutputStream(gos)) {
 
 			// Wichtig für große Dateien und lange Pfade
 			taos.setBigNumberMode(TarArchiveOutputStream.BIGNUMBER_STAR);
@@ -70,10 +67,10 @@ public class TarGzPacker {
 
 			List<Path> hostsData = getHostsDataDirectories(root);
 			List<Path> searchIndex = getSearchIndexPath(root);
-			
+
 			List<Path> ignoredDrectory = new ArrayList<>(hostsData);
 			ignoredDrectory.addAll(searchIndex);
-			
+
 			// Für jede Quelle
 			for (Path source : sources) {
 				Path absolutePath = root.resolve(source);
@@ -87,8 +84,7 @@ public class TarGzPacker {
 			}
 
 			taos.finish();
-			
-			
+
 		}
 	}
 
@@ -151,6 +147,7 @@ public class TarGzPacker {
 					.collect(Collectors.toList());
 		}
 	}
+
 	private static List<Path> getSearchIndexPath(Path root) throws IOException {
 		try (var siteStream = Files.list(root.resolve(Constants.Folders.HOSTS))) {
 			return siteStream
@@ -167,6 +164,86 @@ public class TarGzPacker {
 			}
 		}
 		return false;
+	}
+
+	public static String createTarGz2(Path root, File output, List<Path> sources) throws IOException {
+
+		// Die MessageDigest Instanz wird außerhalb der Try-Blöcke erstellt
+		MessageDigest md;
+		try {
+			md = MessageDigest.getInstance("SHA-256");
+		} catch (Exception e) {
+			throw new IOException("SHA-256 Algorithmus nicht gefunden", e);
+		}
+
+		// Wir benötigen eine temporäre Referenz für den Hash, da er erst am Ende finalisiert wird
+		final MessageDigest finalDigest = md;
+
+		try (FileOutputStream fos = new FileOutputStream(output); BufferedOutputStream bos = new BufferedOutputStream(fos); GzipCompressorOutputStream gos = new GzipCompressorOutputStream(bos)) {
+
+			// 1. DigestOutputStream erstellen: Schreibt den Hash während der Kompression
+			DigestOutputStream digestStream = new DigestOutputStream(gos, finalDigest);
+
+			// 2. TeeOutputStream verwenden: Leitet den unkomprimierten TAR-Stream 
+			//    gleichzeitig an den Digest-Stream UND an den GZip-Stream weiter.
+			//    WICHTIG: Hier muss gos (GZip) an den DigestStream übergeben werden, damit der Hash über 
+			//    den UNKOMPRIMIERTEN Stream berechnet wird. Das ist hier aber nicht korrekt, da
+			//    der DigestOutputStream nur ein Ziel haben kann.
+			// **KORREKTE LÖSUNG OHNE TEEOutputStream (da DigestOutputStream den Stream verpackt):**
+			// Die Logik muss den TarArchiveOutputStream direkt auf den DigestOutputStream aufsetzen.
+			// ******************************************************************************
+			// KORREKTE ANPASSUNG: DigestOutputStream vor Gzip setzen, aber nach TAR.
+			// TAR -> HASH -> GZIP -> FILE
+			// ******************************************************************************
+			try (DigestOutputStream dos = new DigestOutputStream(gos, md); // 1. Ziel: Hash erstellen
+					 TarArchiveOutputStream taos = new TarArchiveOutputStream(dos)) { // 2. Ziel: Tar erstellen
+
+				// ... (Ihre Konfiguration) ...
+				taos.setBigNumberMode(TarArchiveOutputStream.BIGNUMBER_STAR);
+				taos.setLongFileMode(TarArchiveOutputStream.LONGFILE_GNU);
+
+				List<Path> hostsData = getHostsDataDirectories(root);
+				List<Path> searchIndex = getSearchIndexPath(root);
+
+				List<Path> ignoredDrectory = new ArrayList<>(hostsData);
+				ignoredDrectory.addAll(searchIndex);
+
+				// Für jede Quelle
+				for (Path source : sources) {
+					Path absolutePath = root.resolve(source);
+
+					if (!Files.exists(absolutePath)) {
+						throw new FileNotFoundException("Quelle nicht gefunden: " + absolutePath);
+					}
+
+					// Datei oder Verzeichnis hinzufügen
+					addToArchive(taos, absolutePath, root, ignoredDrectory);
+				}
+
+				taos.finish();
+			} // taos und dos schließen sich hier
+
+			// Den Hash aus dem MessageDigest extrahieren
+			return bytesToHex(md.digest());
+
+			// HASH-RÜCKGABE: Sie benötigen eine Möglichkeit, diesen Hash zurückzugeben oder zu speichern.
+			// Da createTarGz void ist, müssten Sie eine Klasse verwenden, um den Hash zu speichern
+			// ODER die Methode so umgestalten, dass sie den Hash als String zurückgibt.
+			// Beispiel: Hinzufügen des Hashes zu einer temporären Datei/Map/Feld
+			// Wir nehmen an, Sie speichern den Hash in einer statischen Variable oder einem Callback.
+			// HIER MÜSSTE EINE LOGIK ZUR SPEICHERUNG DES HASHS EINGEFÜGT WERDEN!
+		} catch (Exception e) {
+			// ...
+		}
+		
+		return null;
+	}
+
+	// Helper-Methode (vereinfacht, benötigt Implementierung)
+	private static String bytesToHex(byte[] bytes) {
+		// ... Implementierung zur Umwandlung des Byte-Arrays in einen Hex-String
+		// (Diese Logik sollte in Ihrem BackupUtil enthalten sein)
+		return BackupUtil.bytesToHex(bytes);
 	}
 
 }
