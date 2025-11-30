@@ -42,6 +42,7 @@ public class Configuration {
 
 		private String name;
 		private boolean enabled = false;
+		private boolean processOnlyOnChange = false;
 		private List<String> include_files;
 		private List<String> include_dirs;
 		private List<PostProcessing> post_processing;
