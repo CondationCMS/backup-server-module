@@ -39,6 +39,7 @@ class TarGzPackerTest {
     void testCreateTarGz() throws IOException {
         // Temporäre Struktur anlegen
 		Path root = Files.createTempDirectory("testRoot");
+		Path hosts = Files.createDirectories(root.resolve("hosts"));
         Path project = Files.createDirectories(root.resolve("project"));
         Path folder1 = Files.createDirectories(project.resolve("folder1"));
         Path file1 = Files.writeString(folder1.resolve("file1.txt"), "Hello");
