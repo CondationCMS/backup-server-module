@@ -128,6 +128,23 @@ public class BackupLifecycleExtension extends ServerLifecycleExtensionPoint {
 									log.debug("creating backup {} into {}", name, targetFile.getFileName().toString());
 									TarGzPacker.createTarGz(ServerUtil.getHome(), targetFile.toFile(), sources);
 
+									if (backup.isProcessOnlyOnChange()) {
+										Path checksumFile = targetPath.resolve(name + ".sha256");
+										String newChecksum = BackupUtil.calculateSHA256(targetFile);
+
+										if (Files.exists(checksumFile)) {
+											String oldChecksum = Files.readString(checksumFile);
+											if (oldChecksum.equals(newChecksum)) {
+												log.debug("backup {} has not changed, skipping post-processing and deleting new backup.", name);
+												Files.delete(targetFile);
+												return; // Skip post-processing
+											}
+										}
+										Path tempChecksumFile = Files.createTempFile(targetPath, name, ".sha256.tmp");
+										Files.writeString(tempChecksumFile, newChecksum);
+										Files.move(tempChecksumFile, checksumFile, java.nio.file.StandardCopyOption.REPLACE_EXISTING, java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+									}
+
 									var hookSystem = getContext().get(InjectorFeature.class).injector().getInstance(HookSystem.class);
 									hookSystem.execute("module/backup/postprocess", Map.of(
 											"file", targetFile.toString(),
