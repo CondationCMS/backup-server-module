@@ -31,9 +31,12 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.security.DigestOutputStream;
 import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
@@ -49,43 +52,10 @@ import org.apache.commons.io.IOUtils;
 @Slf4j
 public class TarGzPacker {
 
-	/**
-	 * Erstellt ein TAR.GZ-Archiv aus den angegebenen Quellpfaden.
-	 *
-	 * @param root Der Basisverzeichnis, unter dem die Quellen liegen
-	 * @param output Die Ausgabedatei (tar.gz)
-	 * @param sources Liste der zu archivierenden Dateien/Verzeichnisse
-	 * @throws IOException Bei Ein-/Ausgabefehler
-	 */
-	public static void createTarGz(Path root, File output, List<Path> sources) throws IOException {
-		try (FileOutputStream fos = new FileOutputStream(output); BufferedOutputStream bos = new BufferedOutputStream(fos); GzipCompressorOutputStream gos = new GzipCompressorOutputStream(bos); TarArchiveOutputStream taos = new TarArchiveOutputStream(gos)) {
-
-			// Wichtig für große Dateien und lange Pfade
-			taos.setBigNumberMode(TarArchiveOutputStream.BIGNUMBER_STAR);
-			taos.setLongFileMode(TarArchiveOutputStream.LONGFILE_GNU);
-
-			List<Path> hostsData = getHostsDataDirectories(root);
-			List<Path> searchIndex = getSearchIndexPath(root);
-
-			List<Path> ignoredDrectory = new ArrayList<>(hostsData);
-			ignoredDrectory.addAll(searchIndex);
-
-			// Für jede Quelle
-			for (Path source : sources) {
-				Path absolutePath = root.resolve(source);
-
-				if (!Files.exists(absolutePath)) {
-					throw new FileNotFoundException("Quelle nicht gefunden: " + absolutePath);
-				}
-
-				// Datei oder Verzeichnis hinzufügen
-				addToArchive(taos, absolutePath, root, ignoredDrectory);
-			}
-
-			taos.finish();
-
-		}
-	}
+	private static final long FIXED_TIMESTAMP = LocalDateTime.of(2026, 1, 1, 0, 0, 0)
+			.atZone(ZoneId.of("UTC"))
+			.toInstant()
+			.getEpochSecond();
 
 	/**
 	 * Rekursiv Dateien und Verzeichnisse zum Archiv hinzufügen.
@@ -98,10 +68,8 @@ public class TarGzPacker {
 	private static void addToArchive(TarArchiveOutputStream taos, Path filePath, Path root, List<Path> ignoredDrectory)
 			throws IOException {
 
-		// Relativen Pfad für das Archiv berechnen
 		Path relativePath = root.relativize(filePath);
 		String entryName = relativePath.toString().replace("\\", "/");
-
 		File file = filePath.toFile();
 
 		if (shouldExclude(filePath, ignoredDrectory)) {
@@ -109,22 +77,25 @@ public class TarGzPacker {
 		}
 
 		if (file.isDirectory()) {
-			// Verzeichniseintrag hinzufügen
-			TarArchiveEntry entry = new TarArchiveEntry(file, entryName + "/");
+			// ← WICHTIG: Verwende NICHT TarArchiveEntry(file, name)
+			// Erstelle einen leeren Entry mit ONLY dem Namen
+			TarArchiveEntry entry = new TarArchiveEntry(entryName + "/");
+			entry.setSize(0);
+			entry.setModTime(FIXED_TIMESTAMP);
 			taos.putArchiveEntry(entry);
 			taos.closeArchiveEntry();
 
-			// Verzeichnis rekursiv durchlaufen
 			File[] children = file.listFiles();
 			if (children != null) {
+				Arrays.sort(children);
 				for (File child : children) {
 					addToArchive(taos, child.toPath(), root, ignoredDrectory);
 				}
 			}
 		} else {
-			// Datei hinzufügen
-			TarArchiveEntry entry = new TarArchiveEntry(file, entryName);
+			TarArchiveEntry entry = new TarArchiveEntry(entryName);
 			entry.setSize(file.length());
+			entry.setModTime(FIXED_TIMESTAMP);
 			taos.putArchiveEntry(entry);
 
 			try (FileInputStream fis = new FileInputStream(file); BufferedInputStream bis = new BufferedInputStream(fis)) {
@@ -133,7 +104,6 @@ public class TarGzPacker {
 				log.error("error copying file", e);
 			} finally {
 				taos.closeArchiveEntry();
-
 			}
 		}
 	}
@@ -165,39 +135,15 @@ public class TarGzPacker {
 		return false;
 	}
 
-	public static String createTarGz2(Path root, File output, List<Path> sources) throws IOException {
+	public static String createTarGz(Path root, File output, List<Path> sources) throws IOException {
 
-		// Die MessageDigest Instanz wird außerhalb der Try-Blöcke erstellt
-		MessageDigest md;
+		File tempTar = File.createTempFile("backup_", ".tar");
+		tempTar.deleteOnExit();
+
 		try {
-			md = MessageDigest.getInstance("SHA-256");
-		} catch (Exception e) {
-			throw new IOException("SHA-256 Algorithmus nicht gefunden", e);
-		}
+			// 1. Erstelle TAR
+			try (FileOutputStream fos = new FileOutputStream(tempTar); TarArchiveOutputStream taos = new TarArchiveOutputStream(fos)) {
 
-		// Wir benötigen eine temporäre Referenz für den Hash, da er erst am Ende finalisiert wird
-		final MessageDigest finalDigest = md;
-
-		try (FileOutputStream fos = new FileOutputStream(output); BufferedOutputStream bos = new BufferedOutputStream(fos); GzipCompressorOutputStream gos = new GzipCompressorOutputStream(bos)) {
-
-			// 1. DigestOutputStream erstellen: Schreibt den Hash während der Kompression
-			DigestOutputStream digestStream = new DigestOutputStream(gos, finalDigest);
-
-			// 2. TeeOutputStream verwenden: Leitet den unkomprimierten TAR-Stream 
-			//    gleichzeitig an den Digest-Stream UND an den GZip-Stream weiter.
-			//    WICHTIG: Hier muss gos (GZip) an den DigestStream übergeben werden, damit der Hash über 
-			//    den UNKOMPRIMIERTEN Stream berechnet wird. Das ist hier aber nicht korrekt, da
-			//    der DigestOutputStream nur ein Ziel haben kann.
-			// **KORREKTE LÖSUNG OHNE TEEOutputStream (da DigestOutputStream den Stream verpackt):**
-			// Die Logik muss den TarArchiveOutputStream direkt auf den DigestOutputStream aufsetzen.
-			// ******************************************************************************
-			// KORREKTE ANPASSUNG: DigestOutputStream vor Gzip setzen, aber nach TAR.
-			// TAR -> HASH -> GZIP -> FILE
-			// ******************************************************************************
-			try (DigestOutputStream dos = new DigestOutputStream(gos, md); // 1. Ziel: Hash erstellen
-					 TarArchiveOutputStream taos = new TarArchiveOutputStream(dos)) { // 2. Ziel: Tar erstellen
-
-				// ... (Ihre Konfiguration) ...
 				taos.setBigNumberMode(TarArchiveOutputStream.BIGNUMBER_STAR);
 				taos.setLongFileMode(TarArchiveOutputStream.LONGFILE_GNU);
 
@@ -207,34 +153,55 @@ public class TarGzPacker {
 				List<Path> ignoredDrectory = new ArrayList<>(hostsData);
 				ignoredDrectory.addAll(searchIndex);
 
-				// Für jede Quelle
-				for (Path source : sources) {
+				List<Path> sortedSources = new ArrayList<>(sources);
+				sortedSources.sort(Path::compareTo);
+
+				for (Path source : sortedSources) {
 					Path absolutePath = root.resolve(source);
 
 					if (!Files.exists(absolutePath)) {
 						throw new FileNotFoundException("Quelle nicht gefunden: " + absolutePath);
 					}
 
-					// Datei oder Verzeichnis hinzufügen
 					addToArchive(taos, absolutePath, root, ignoredDrectory);
 				}
 
 				taos.finish();
-			} // taos und dos schließen sich hier
+			}
 
-			// Den Hash aus dem MessageDigest extrahieren
-			return bytesToHex(md.digest());
+			String tarHash = calculateFileHash(tempTar);
 
-			// HASH-RÜCKGABE: Sie benötigen eine Möglichkeit, diesen Hash zurückzugeben oder zu speichern.
-			// Da createTarGz void ist, müssten Sie eine Klasse verwenden, um den Hash zu speichern
-			// ODER die Methode so umgestalten, dass sie den Hash als String zurückgibt.
-			// Beispiel: Hinzufügen des Hashes zu einer temporären Datei/Map/Feld
-			// Wir nehmen an, Sie speichern den Hash in einer statischen Variable oder einem Callback.
-			// HIER MÜSSTE EINE LOGIK ZUR SPEICHERUNG DES HASHS EINGEFÜGT WERDEN!
-		} catch (Exception e) {
-			// ...
+			try (FileInputStream fis = new FileInputStream(tempTar); FileOutputStream fos = new FileOutputStream(output); GzipCompressorOutputStream gos = new GzipCompressorOutputStream(fos)) {
+
+				byte[] buffer = new byte[65536];
+				int bytesRead;
+				while ((bytesRead = fis.read(buffer)) != -1) {
+					gos.write(buffer, 0, bytesRead);
+				}
+			}
+
+			return tarHash;
+
+		} finally {
+			tempTar.delete();
 		}
-		
+	}
+
+	private static String calculateFileHash(File file) throws IOException {
+		try {
+			MessageDigest md = MessageDigest.getInstance("SHA-256");
+			try (FileInputStream fis = new FileInputStream(file); BufferedInputStream bis = new BufferedInputStream(fis)) {
+				byte[] buffer = new byte[8192];
+				int bytesRead;
+				while ((bytesRead = bis.read(buffer)) != -1) {
+					md.update(buffer, 0, bytesRead);
+				}
+			}
+			String hash = bytesToHex(md.digest());
+			return hash;
+		} catch (NoSuchAlgorithmException ex) {
+			log.error("error creating hash", ex);
+		}
 		return null;
 	}
 
