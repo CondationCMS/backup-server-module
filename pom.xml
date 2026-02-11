@@ -4,7 +4,7 @@
 	
 	<groupId>com.condation.cms.modules</groupId>
 	<artifactId>backup-server-module</artifactId>
-	<version>1.1.1</version>
+	<version>1.1.2</version>
 	<packaging>jar</packaging>
 	<name>backup-server-module</name>
 

@@ -74,26 +74,31 @@ public class BackupCronJob implements CronJob {
 			final Path targetFile = targetPath.resolve(backupFilename);
 
 			List<Path> sources = new ArrayList<>();
-			backup.getInclude_files().forEach(file -> {
-				var bf = Path.of(file);
-				if (PathUtil.isChild(ServerUtil.getHome(), bf)) {
-					if (Files.exists(bf)) {
-						sources.add(bf);
+			if (backup.getInclude_files() != null) {
+				backup.getInclude_files().forEach(file -> {
+					var bf = Path.of(file);
+					if (PathUtil.isChild(ServerUtil.getHome(), bf)) {
+						if (Files.exists(bf)) {
+							sources.add(bf);
+						}
+					} else {
+						log.warn("online files inside server home are allowed for backup");
 					}
-				} else {
-					log.warn("online files inside server home are allowed for backup");
-				}
-			});
-			backup.getInclude_dirs().forEach(file -> {
-				var bf = Path.of(file);
-				if (PathUtil.isChild(ServerUtil.getHome(), bf)) {
-					if (Files.exists(bf)) {
-						sources.add(bf);
+				});
+			}
+			
+			if (backup.getInclude_dirs() != null) {
+				backup.getInclude_dirs().forEach(file -> {
+					var bf = Path.of(file);
+					if (PathUtil.isChild(ServerUtil.getHome(), bf)) {
+						if (Files.exists(bf)) {
+							sources.add(bf);
+						}
+					} else {
+						log.warn("online folders inside server home are allowed for backup");
 					}
-				} else {
-					log.warn("online folders inside server home are allowed for backup");
-				}
-			});
+				});
+			}
 
 			log.debug("creating backup {} into {}", name, targetFile.getFileName().toString());
 			TarGzPacker.createTarGz(ServerUtil.getHome(), targetFile.toFile(), sources);

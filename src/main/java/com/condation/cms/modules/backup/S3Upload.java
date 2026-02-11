@@ -30,6 +30,8 @@ import java.net.URI;
 import java.nio.file.Path;
 
 import lombok.extern.slf4j.Slf4j;
+import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.ProfileCredentialsProvider;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.regions.Region;
@@ -79,11 +81,17 @@ public class S3Upload extends ServerHookSystemRegisterExtensionPoint {
 
 		var fileName = (String) context.arguments().get("file");
 		var file = Path.of(fileName);
+		final String profile = (String) s3Config.getOrDefault("profile", "-none-");
 
 		
+		AwsCredentialsProvider provider = DefaultCredentialsProvider.builder().build();
+		if ("-none-".equals(profile)) {
+			provider = ProfileCredentialsProvider.create(profile);
+		}
+				
 		try (S3Client s3 = S3Client.builder()
 				.region(Region.EU_CENTRAL_1)
-				.credentialsProvider(ProfileCredentialsProvider.create((String) s3Config.getOrDefault("profile", "default")))
+				.credentialsProvider(provider)
 				.endpointOverride(URI.create((String) s3Config.getOrDefault("endpoint", null)))
 				.serviceConfiguration(
 						S3Configuration.builder()

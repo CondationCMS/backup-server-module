@@ -26,7 +26,7 @@ import com.condation.cms.api.hooks.ActionContext;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
-import software.amazon.awssdk.auth.credentials.ProfileCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3Configuration;
@@ -50,6 +50,13 @@ import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 @Testcontainers
 public class S3UploadTest {
 
+	static {
+        // Zwingt das SDK, nicht in echten Dateien zu suchen
+        System.setProperty("aws.accessKeyId", "foo");
+        System.setProperty("aws.secretAccessKey", "bar");
+        System.setProperty("aws.region", "eu-central-1");
+    }
+	
 	@Container
 	S3MockContainer s3Container = new S3MockContainer("latest");
 
@@ -93,7 +100,7 @@ public class S3UploadTest {
 			// --- Prüfen, dass die Datei existiert ---
 			try (S3Client s3 = S3Client.builder()
 					.region(Region.EU_CENTRAL_1)
-					.credentialsProvider(ProfileCredentialsProvider.create("default"))
+					.credentialsProvider(AnonymousCredentialsProvider.create())
 					.endpointOverride(URI.create(s3Container.getHttpEndpoint()))
 					.serviceConfiguration(S3Configuration.builder().pathStyleAccessEnabled(true).build())
 					.build()) {
