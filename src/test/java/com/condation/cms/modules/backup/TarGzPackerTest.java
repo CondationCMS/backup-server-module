@@ -30,28 +30,39 @@ import org.junit.jupiter.api.Test;
 import java.io.*;
 import java.nio.file.*;
 import java.util.*;
+import org.assertj.core.api.Assertions;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 class TarGzPackerTest {
 
     @Test
-    void testCreateTarGz() throws IOException {
+    void test_hash() throws IOException {
         // Temporäre Struktur anlegen
 		Path root = Files.createTempDirectory("testRoot");
+		Path hosts = Files.createDirectories(root.resolve("hosts"));
         Path project = Files.createDirectories(root.resolve("project"));
         Path folder1 = Files.createDirectories(project.resolve("folder1"));
         Path file1 = Files.writeString(folder1.resolve("file1.txt"), "Hello");
         Path file2 = Files.writeString(project.resolve("file2.txt"), "World");
 
         File outputArchive = root.resolve("archive.tar.gz").toFile();
-
         // Packen
-        TarGzPacker.createTarGz(
+        String hash = TarGzPacker.createTarGz(
 				root,
                 outputArchive,
                 List.of(folder1, file2)
         );
+		
+		File outputArchive2 = root.resolve("archive2.tar.gz").toFile();
+        // Packen
+        String hash2 = TarGzPacker.createTarGz(
+				root,
+                outputArchive2,
+                List.of(folder1, file2)
+        );
+		
+		Assertions.assertThat(hash).isEqualTo(hash2);
 
         // Inhalte aus dem Archiv lesen
         Set<String> entryNames = new HashSet<>();
