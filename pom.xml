@@ -14,7 +14,7 @@
 		<module.name>backup server module</module.name>
 		<module.priority>NORMAL</module.priority>
 		
-		<cms.version>8.0.0</cms.version>
+		<cms.version>8.1.0</cms.version>
 		<modules.version>1.4.0</modules.version>
 		<maven.compiler.source>25</maven.compiler.source>
 		<maven.compiler.target>25</maven.compiler.target>
@@ -57,7 +57,7 @@
 		<dependency>
 			<groupId>software.amazon.awssdk</groupId>
 			<artifactId>s3</artifactId>
-			<version>2.44.3</version>
+			<version>2.44.4</version>
 			<exclusions>
 				<exclusion>
 					<groupId>org.slf4j</groupId>
@@ -68,7 +68,7 @@
 		<dependency>
 			<groupId>software.amazon.awssdk</groupId>
 			<artifactId>url-connection-client</artifactId>
-			<version>2.44.3</version>
+			<version>2.44.4</version>
 		</dependency>
 		<dependency>
 			<groupId>commons-net</groupId>
