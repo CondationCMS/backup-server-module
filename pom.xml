@@ -15,7 +15,7 @@
 		<module.priority>NORMAL</module.priority>
 		
 		<cms.version>8.4.0</cms.version>
-		<modules.version>1.5.0</modules.version>
+		<modules.version>1.5.1</modules.version>
 		<maven.compiler.source>25</maven.compiler.source>
 		<maven.compiler.target>25</maven.compiler.target>
 	</properties>
